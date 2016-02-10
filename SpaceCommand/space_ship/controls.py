@@ -1,3 +1,4 @@
+import math
 import time
 import sys
 
@@ -71,33 +72,111 @@ class NavComputer(object):
                 return True
         return False
 
+
+    def better_chase_the_apoapsis(self, desired_apoapsis_altitude,
+                                  accuracy = 0.05):
+        derivative_of_delta_v = 1
+        degrees_to_horizon = 10
+        print("entering while loop")
+        while True:
+            start_time_to_apoapsis = self._vessel.orbit.time_to_apoapsis
+            if start_time_to_apoapsis < 10:
+                delta_v = self.accelerate_towards_apoapsis(
+                    1, 30)
+            else:
+                delta_v = self.accelerate_towards_apoapsis(
+                    derivative_of_delta_v,degrees_to_horizon)
+            end_time_to_apoapsis = self._vessel.orbit.time_to_apoapsis
+            print("delta_v: %s"%delta_v)
+            derivative_of_delta_v = ( delta_v /
+                            (end_time_to_apoapsis - start_time_to_apoapsis)
+                                    )
+            print("derivative of delta_v: %s"%derivative_of_delta_v)
+            if self._vessel.orbit.periapsis_altitude >= (desired_apoapsis_altitude *
+                                                          (1 - accuracy)):
+                print ("reached altitude")
+                return True
+            self.decouple_empty_engines(1)
+
+            if self.all_ship_fuel_spent():
+                return False
+
+    def all_ship_fuel_spent(self):
+        if self._vessel.mass == self._vessel.dry_mass:
+            return True
+        return False
+
+    def accelerate_towards_apoapsis(self, derivative_of_delta_v=1,
+                                    degrees_above_horizon=0):
+        ''''@:param derivative_of_delta: constant representing a relationship
+        between the thrustof the vessel and its delta_v
+        '''
+        start_vessel_speed = self._vessel.flight(
+                                self._vessel.orbit.body.reference_frame).speed
+        self._vessel.auto_pilot.target_pitch_and_heading(degrees_above_horizon, 90)
+        print ("derivative: %s"%derivative_of_delta_v)
+        throttle_value = 1/derivative_of_delta_v
+        if throttle_value > 1 :
+            throttle_value = 1
+        print("throttling to: %s"%throttle_value)
+        self._vessel.control.throttle = throttle_value
+        time.sleep(2)
+        self._vessel.control.throttle = 0
+        end_vessel_speed = self._vessel.flight(
+                                self._vessel.orbit.body.reference_frame).speed
+        return end_vessel_speed - start_vessel_speed
+
+    def get_magnitude_of_vector(self, vector):
+        x = vector[0]
+        y = vector[1]
+        z = vector[2]
+        return math.sqrt(x*x + y*y + z*z)
+
+
     def chase_the_apoapsis(self):
+        desired_orbit_reached = False
+
         while not desired_orbit_reached:
-            degrees_above_horizon = 10
+            throttle_value = 0.01
+            orbital_ratio = ( self._vessel.orbit.periapsis_altitude
+                              / self._vessel.orbit.apoapsis_altitude)
+            if orbital_ratio < 0 :
+                orbital_ratio  = 0
+
+            degrees_above_horizon = 15 * (1- orbital_ratio)
+            drag = self.get_magnitude_of_vector(self._vessel.flight().drag)
             sys.stdout.write("\rTime to apoapsis: %i s"
                              % self.vessel.orbit.time_to_apoapsis)
             sys.stdout.flush()
-            if self.vessel.orbit.time_to_apoapsis < 30:
-                throttle_value = 0.10
-                degrees_above_horizon = 10
-            if self.vessel.orbit.time_to_apoapsis < 20:
-                throttle_value = 0.20
-                degrees_above_horizon = 10
-            if self.vessel.orbit.time_to_apoapsis < 10:
+            if drag >  5:
+                if self._vessel.orbit.time_to_apoapsis < 30:
+                    throttle_value = 0.5
+                    degrees_above_horizon = 10
+                if self._vessel.orbit.time_to_apoapsis < 25:
+                    throttle_value = 0.10
+                    degrees_above_horizon = 10
+                if self._vessel.orbit.time_to_apoapsis < 20 :
+                    throttle_value = 0.15
+                    degrees_above_horizon = 10
+            if self._vessel.orbit.time_to_apoapsis < 10:
+                throttle_value = 0.50
+                degrees_above_horizon = 15
+            if self._vessel.orbit.time_to_apoapsis < 7:
                 throttle_value = 0.75
                 degrees_above_horizon = 15
-            if self.vessel.orbit.time_to_apoapsis < 7:
+            if self._vessel.orbit.time_to_apoapsis < 5:
                 throttle_value = 1
                 degrees_above_horizon = 15
-            if self.vessel.orbit.time_to_apoapsis > 45:
+            if self._vessel.orbit.time_to_apoapsis > 45:
                 throttle_value = 0
 
             self._vessel.auto_pilot.target_pitch_and_heading(degrees_above_horizon, 90)
-            self.vessel.control.throttle = throttle_value
-            acceptable_error = vessel.orbit.apoapsis_altitude * .01
-            if ((self.vessel.orbit.apoapsis_altitude
-                     - self.vessel.orbit.periapsis_altitude) <
+            self._vessel.control.throttle = throttle_value
+            acceptable_error = self._vessel.orbit.apoapsis_altitude * .01
+            if ((self._vessel.orbit.apoapsis_altitude
+                     - self._vessel.orbit.periapsis_altitude) <
                     acceptable_error):
                 desired_orbit_reached = True
             if(self.decouple_empty_engines(1)):
-                self.vessel.control.activate_next_stage()
+                self._vessel.control.activate_next_stage()
+
